@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="only light">
+<meta name="theme-color" content="#4a1240">
+<title>Espace numérique – EM Gabon-Université</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="assets/img/logo-emgu.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body data-page="espace">
+<div id="site-header"></div>
+
+<div class="auth">
+  <div class="side">
+    <img id="side-img" src="assets/img/etudiants-ijcl.jpg" alt="">
+    <span class="eyebrow">Espace numérique EM Gabon</span>
+    <h2 id="side-title">Votre campus, partout, tout le temps.</h2>
+    <p id="side-text">Notes, bulletins, annonces des enseignants et messagerie : tout votre parcours réuni en un seul endroit.</p>
+  </div>
+  <div class="main">
+    <div class="box">
+      <h1>Connexion</h1>
+      <p style="color:var(--muted)">Choisissez votre profil puis saisissez vos identifiants.</p>
+      <div class="role-sw" role="tablist">
+        <button type="button" data-role="etudiant" class="on">Étudiant</button>
+        <button type="button" data-role="enseignant">Enseignant</button>
+        <button type="button" data-role="admin">Scolarité</button>
+      </div>
+      <form class="form" id="login-form">
+        <div class="field"><label for="login" id="login-label">Matricule</label><input id="login" name="login" required autocomplete="username"></div>
+        <div class="field"><label for="pwd">Mot de passe</label><input id="pwd" name="pwd" type="password" required autocomplete="current-password"></div>
+        <button class="btn btn-navy" type="submit" style="justify-content:center">Se connecter</button>
+      </form>
+      <div class="demo" id="demo"></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="assets/js/data.js"></script>
+<script src="assets/js/config.js"></script>
+<script src="assets/js/store.js"></script>
+<script src="assets/js/main.js"></script>
+<script>
+(() => {
+  const cfg = {
+    etudiant: {label:"Matricule", img:"etudiants-ijcl", t:"Votre campus, partout, tout le temps.", p:"Notes, bulletins, annonces des enseignants et messagerie : tout votre parcours réuni en un seul endroit.", demo:[["EMGU25-001","emgu2026","Arnaud Nzé · L3 CCA"],["EMGU25-015","emgu2026","Davy Mapangou · L2 Génie informatique"]], go:"etudiant.html"},
+    enseignant: {label:"Identifiant enseignant", img:"labo-sante", t:"Le back-office des enseignants.", p:"Saisissez les notes, publiez annonces et devoirs, suivez la progression de vos classes et répondez à vos étudiants.", demo:[["p.ndong","prof2026","M. Paul Ndong · Informatique"],["c.mba","prof2026","Mme Clarisse Mba · Droit"],["s.obiang","prof2026","M. Serge Obiang · Gestion & Finance"]], go:"enseignant.html"},
+    admin: {label:"Identifiant administration", img:"campus-mindoube", t:"Pilotage de la scolarité.", p:"Pré-inscriptions, messages du site, résultats par classe et annonces à toute l'université.", demo:[["scolarite","admin2026","Direction de la Scolarité"]], go:"enseignant.html"},
+  };
+  let role = new URLSearchParams(location.search).get("role");
+  if (!cfg[role]) role = "etudiant";
+  const set = r => {
+    role = r; const c = cfg[r];
+    document.querySelectorAll(".role-sw button").forEach(b => b.classList.toggle("on", b.dataset.role === r));
+    document.getElementById("login-label").textContent = c.label;
+    const img = document.getElementById("side-img"); img.src = `assets/img/${c.img}.jpg`;
+    document.getElementById("side-title").textContent = c.t; document.getElementById("side-text").textContent = c.p;
+    const dm = document.getElementById("demo"); dm.style.display = (window.ESM_CONFIG || {}).showDemo === false ? "none" : "";
+    dm.innerHTML = `<b>Comptes de démonstration</b> — cliquez sur un compte pour le tester :<br>` + c.demo.map(([l, p, n]) => `<div style="margin-top:.4rem"><code data-l="${l}" data-p="${p}">${l}</code> / <code data-l="${l}" data-p="${p}">${p}</code> — ${n}</div>`).join("");
+  };
+  document.querySelector(".role-sw").addEventListener("click", e => { const b = e.target.closest("button"); if (b) set(b.dataset.role); });
+  document.getElementById("demo").addEventListener("click", e => { const c = e.target.closest("code"); if (!c) return; document.getElementById("login").value = c.dataset.l; document.getElementById("pwd").value = c.dataset.p; });
+  document.getElementById("login-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const btn = e.target.querySelector("button"); btn.disabled = true; btn.textContent = "Connexion…";
+    let u = null;
+    try { u = await Store.login(e.target.login.value, e.target.pwd.value, role); } catch (err) { toast("Connexion au serveur impossible.", "err"); }
+    btn.disabled = false; btn.textContent = "Se connecter";
+    if (!u) return toast("Identifiants incorrects pour ce profil.", "err");
+    toast(`Bienvenue ${u.prenom} !`, "ok");
+    setTimeout(() => location.href = cfg[role].go, 500);
+  });
+  set(role);
+  // Accès en un clic depuis l'accueil (?demo=1) : connexion automatique au compte de démonstration
+  const P = new URLSearchParams(location.search), E = (typeof ESPACES !== "undefined" ? ESPACES : []).find(x => x.role === role);
+  if (P.get("demo") === "1" && E && (window.ESM_CONFIG || {}).showDemo !== false) {
+    document.getElementById("login").value = E.demo.login; document.getElementById("pwd").value = E.demo.pwd;
+    toast(`Connexion à l'espace ${E.t.toLowerCase()} de démonstration…`);
+    setTimeout(() => document.getElementById("login-form").requestSubmit(), 700);
+  }
+})();
+</script>
+</body>
+</html>
