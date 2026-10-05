@@ -85,6 +85,19 @@ create table if not exists public.contacts (
 );
 
 -- ---------------------------------------------------------------------
+-- Planning : séances hebdomadaires (jour 1 = lundi … 6 = samedi)
+create table if not exists public.creneaux (
+  id      uuid primary key default gen_random_uuid(),
+  classe  text not null references public.classes on delete cascade,
+  matiere text not null references public.matieres on delete cascade,
+  jour    int  not null check (jour between 1 and 6),
+  debut   time not null,
+  fin     time not null check (fin > debut),
+  salle   text,
+  type    text not null default 'Cours' check (type in ('Cours','TD','TP','Examen'))
+);
+
+-- ---------------------------------------------------------------------
 -- 2. Fonctions utilitaires (utilisées par les règles de sécurité)
 -- ---------------------------------------------------------------------
 create or replace function public.my_role() returns text
@@ -114,6 +127,7 @@ alter table public.posts        enable row level security;
 alter table public.messages     enable row level security;
 alter table public.candidatures enable row level security;
 alter table public.contacts     enable row level security;
+alter table public.creneaux     enable row level security;
 
 -- Classes & matières : lecture pour les connectés, écriture pour la scolarité
 create policy classes_read   on public.classes  for select to authenticated using (true);
@@ -156,6 +170,10 @@ create policy cand_admin on public.candidatures for all to authenticated using (
 create policy contacts_insert on public.contacts for insert to anon, authenticated with check (true);
 create policy contacts_admin  on public.contacts for select to authenticated using (my_role() = 'admin');
 create policy contacts_del    on public.contacts for delete to authenticated using (my_role() = 'admin');
+
+-- Planning : lecture pour tous les connectés, gestion par la scolarité
+create policy creneaux_read  on public.creneaux for select to authenticated using (true);
+create policy creneaux_admin on public.creneaux for all    to authenticated using (my_role() = 'admin') with check (my_role() = 'admin');
 
 -- ---------------------------------------------------------------------
 -- 4. Fonctions appelées par le site
@@ -249,7 +267,7 @@ grant execute on function public.admin_delete_user(uuid) to authenticated;
 -- ---------------------------------------------------------------------
 -- 5. Temps réel (notes, annonces, messages, pré-inscriptions)
 -- ---------------------------------------------------------------------
-alter publication supabase_realtime add table public.notes, public.posts, public.messages, public.candidatures, public.contacts;
+alter publication supabase_realtime add table public.notes, public.posts, public.messages, public.candidatures, public.contacts, public.creneaux;
 
 -- ---------------------------------------------------------------------
 -- 6. Données de démarrage (comptes de démonstration)
@@ -297,6 +315,14 @@ begin
     (t3,'L3-DEA','m5','annonce','Conférence : financer son entreprise','Conférence en salle des Actes jeudi à 10h avec un banquier de la place. Présence obligatoire, tenue réglementaire exigée.',null, now() - interval '4 days'),
     (t2,'L3-CCA','m2','urgent','Changement de salle','Le cours de Droit fiscal de jeudi aura lieu en salle 4 (au lieu de la salle 2).',null, now() - interval '7 hours'),
     (t1,'L3-CCA','m1','devoir','Exercice sur tableur','Exercice n°3 : construire le tableau d''amortissement et le bilan simplifié sur tableur à partir des données fournies.', now() + interval '4 days', now() - interval '6 days');
+  insert into creneaux(classe, jour, debut, fin, matiere, salle, type) values
+    ('L3-CCA',1,'08:00','10:00','m3','Salle A1','Cours'), ('L3-CCA',1,'10:15','12:15','m2','Salle A1','Cours'), ('L3-CCA',2,'14:00','16:00','m1','Salle info 1','TP'),
+    ('L3-CCA',3,'08:00','10:00','m3','Salle A1','TD'), ('L3-CCA',4,'10:15','12:15','m2','Salle A1','TD'), ('L3-CCA',5,'08:00','10:00','m1','Salle info 1','Cours'),
+    ('L3-DEA',1,'10:15','12:15','m5','Salle B2','Cours'), ('L3-DEA',1,'14:00','16:00','m4','Salle B2','Cours'), ('L3-DEA',2,'08:00','10:00','m6','Salle B2','Cours'),
+    ('L3-DEA',3,'10:15','12:15','m4','Salle B2','TD'), ('L3-DEA',4,'14:00','16:00','m5','Salle B2','TD'), ('L3-DEA',6,'08:00','11:00','m4','Amphithéâtre','Examen'),
+    ('L2-GI',1,'08:00','10:00','m7','Salle info 2','Cours'), ('L2-GI',2,'10:15','12:15','m8','Labo réseaux','Cours'), ('L2-GI',3,'14:00','17:00','m8','Labo réseaux','TP'),
+    ('L2-GI',4,'08:00','10:00','m7','Salle info 2','TD'), ('L2-GI',5,'10:15','12:15','m7','Salle info 2','TP'),
+    ('M1-MSRH',2,'16:15','18:15','m9','Salle C1','Cours'), ('M1-MSRH',3,'16:15','18:15','m10','Salle C1','Cours'), ('M1-MSRH',4,'16:15','18:15','m9','Salle C1','TD'), ('M1-MSRH',5,'14:00','16:00','m10','Salle C1','TD');
   insert into messages(from_id, to_id, texte, date, lu) values
     ((select id from profiles where login='EMGU25-015'), t1, 'Bonjour Monsieur, pour le TP réseau, peut-on travailler en binôme ?', now() - interval '29 hours', false),
     ((select id from profiles where login='EMGU25-001'), t2, 'Bonjour Madame, serait-il possible d''avoir le support du dernier cours sur la TVA ?', now() - interval '60 hours', true),

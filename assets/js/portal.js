@@ -118,6 +118,36 @@ const P = (() => {
     };
   }
 
+  /* ---------- Planning : grille de la semaine (partagée) ---------- */
+  const mn = t => { const [h, m] = String(t).split(":").map(Number); return h * 60 + m; };
+  const heures = list => list.reduce((a, c) => a + (mn(c.fin) - mn(c.debut)), 0) / 60;
+  const fmtH = h => (Math.round(h * 10) / 10).toString().replace(".", ",") + " h";
+  const TYC = {Cours:"cours", TD:"td", TP:"tp", Examen:"exam"};
+  // list : séances ; o.label(c) → [titre, ligne secondaire] ; o.edit : séances cliquables
+  function week(list, o = {}) {
+    const days = [1, 2, 3, 4, 5].concat(list.some(c => c.jour === 6) ? [6] : []);
+    const t0 = Math.min(8 * 60, ...list.map(c => mn(c.debut))), t1 = Math.max(18 * 60, ...list.map(c => mn(c.fin)));
+    const h0 = Math.floor(t0 / 60), h1 = Math.ceil(t1 / 60), span = (h1 - h0) * 60, today = new Date().getDay();
+    const tag = o.edit ? "button" : "div";
+    const blk = c => { const [a, b] = o.label(c);
+      return `<${tag} class="blk ${TYC[c.type] || "cours"}" data-cr="${c.id}" style="top:${(mn(c.debut) - h0 * 60) / span * 100}%;height:${(mn(c.fin) - mn(c.debut)) / span * 100}%" title="${esc(a + " · " + c.debut + "–" + c.fin)}">
+        <span class="ty">${esc(c.type)}</span><b>${esc(a)}</b><small>${c.debut}–${c.fin}${c.salle ? " · " + esc(c.salle) : ""}</small><small>${esc(b)}</small></${tag}>`; };
+    const grid = `<div class="wk" style="--d:${days.length};--h:${h1 - h0}"><div></div>${days.map(j => `<div class="wk-h ${j === today ? "today" : ""}">${Store.JOURS[j]}</div>`).join("")}
+      <div class="wk-t">${Array.from({length:h1 - h0}, (_, i) => `<span>${String(h0 + i).padStart(2, "0")}h</span>`).join("")}</div>
+      ${days.map(j => `<div class="wk-d ${j === today ? "today" : ""}">${list.filter(c => c.jour === j).map(blk).join("")}</div>`).join("")}</div>`;
+    const lst = `<div class="wk-list">${days.map(j => { const l = list.filter(c => c.jour === j);
+      return `<div class="wl-day ${j === today ? "today" : ""}"><h4>${Store.JOURS[j]}${j === today ? ` <span class="chip info">Aujourd'hui</span>` : ""}</h4>${l.length ? l.map(c => { const [a, b] = o.label(c);
+        return `<${tag} class="wl ${TYC[c.type] || "cours"}" data-cr="${c.id}"><span class="wl-t">${c.debut}<br>${c.fin}</span><span><b>${esc(a)}</b><small>${esc(c.type)}${c.salle ? " · " + esc(c.salle) : ""} · ${esc(b)}</small></span></${tag}>`; }).join("") : `<p class="wl-free">Pas de cours</p>`}</div>`; }).join("")}</div>`;
+    return `<div class="wk-legend">${Store.TYPES.map(t => `<span class="${TYC[t]}">${t}</span>`).join("")}</div>` + grid + lst;
+  }
+  // Prochaine séance à venir dans la semaine (tableaux de bord)
+  function prochain(list) {
+    const d = new Date(), now = (d.getDay() || 7) * 1440 + d.getHours() * 60 + d.getMinutes();
+    const k = c => { const v = c.jour * 1440 + mn(c.debut); return v >= now ? v - now : v - now + 7 * 1440; };
+    return list.slice().sort((a, b) => k(a) - k(b))[0];
+  }
+  const nextLine = nx => nx ? `<b>${esc(Store.matiere(nx.matiere)?.nom || "")}</b>, ${Store.JOURS[nx.jour].toLowerCase()} de ${nx.debut} à ${nx.fin}${nx.salle ? " en " + esc(nx.salle) : ""}` : "";
+
   /* =========================================================
      BACK-OFFICE ENSEIGNANT / SCOLARITÉ
      ========================================================= */
@@ -133,6 +163,7 @@ const P = (() => {
     const nav = [
       {id:"tableau", l:"Tableau de bord", ic:"home", s:admin ? "Vue d'ensemble de l'université" : "Vue d'ensemble de vos enseignements"},
       {id:"notes", l:"Saisie des notes", ic:"edit", s:`Contrôle continu ${Store.PONDERATION.cc * 100} % · Examen ${Store.PONDERATION.exam * 100} % — moyenne calculée automatiquement`},
+      {id:"planning", l:admin ? "Planning" : "Mon planning", ic:"cal", s:admin ? "Emplois du temps des classes : séances, salles et enseignants, avec contrôle des conflits" : "Vos séances de la semaine, toutes classes confondues"},
       {id:"annonces", l:"Annonces & devoirs", ic:"mega", s:"Publiez des informations visibles immédiatement par vos étudiants"},
       {id:"messages", l:"Messagerie", ic:"chat", s:"Échangez avec vos étudiants", badge:() => Store.unread(me.id)},
     ];
@@ -220,6 +251,58 @@ const P = (() => {
         };
         draw();
         if (!window.__esmBU && (window.__esmBU = true)) addEventListener("beforeunload", e => { if (window.__esmDirty && cur === "notes") { e.preventDefault(); e.returnValue = ""; } });
+      },
+
+      planning(el) {
+        const label = by => c => { const m = Store.matiere(c.matiere) || {}; return by === "prof" ? [m.nom || "—", c.classe] : [m.nom || "—", full(Store.user(m.prof))]; };
+        if (!admin) {
+          const L = Store.creneaux({prof:me.id}), nx = prochain(L), cls = new Set(L.map(c => c.classe));
+          el.innerHTML = kpis([["cal","ic-b",L.length,"séances par semaine"],["clock","ic-o",fmtH(heures(L)),"de cours par semaine"],["users","ic-g",cls.size,"classe(s)"],["book","ic-y",nx ? `${Store.JOURS[nx.jour].slice(0, 3)}. ${nx.debut}` : "—","prochaine séance"]]) +
+            `<div class="card"><h2>Ma semaine <button class="btn btn-line btn-sm no-print" onclick="print()">${ICONS.print} Imprimer</button></h2>${L.length ? week(L, {label:label("prof")}) : empty("Aucune séance programmée pour vous. La scolarité construit le planning des classes.", "cal")}
+            ${nx ? `<p class="notice">Prochaine séance avec la ${esc(nx.classe)} : ${nextLine(nx)}.</p>` : ""}</div>`;
+          return;
+        }
+        if (!db().classes.length) { el.innerHTML = `<div class="card">${empty("Créez d'abord des classes et des matières dans « Classes & matières ».", "cal")}</div>`; return; }
+        let v = ss("esm_pl") || "c:" + db().classes[0].id;
+        { const [a, b] = v.split(":"); if ((a === "c" && !Store.classe(b)) || (a === "p" && !Store.user(b))) v = "c:" + db().classes[0].id; }
+        const [M, K] = v.split(":"), L = M === "c" ? Store.creneaux({classe:K}) : Store.creneaux({prof:K});
+        const all = Store.creneaux(), nbConf = all.filter(c => Store.conflits(c).length).length;
+        const cm = M === "c" ? db().matieres.filter(m => m.classe === K) : db().matieres.filter(m => m.prof === K);
+        el.innerHTML = kpis([["cal","ic-b",L.length,"séances par semaine"],["clock","ic-o",fmtH(heures(L)),"de cours par semaine"],["book","ic-g",`${cm.filter(m => L.some(c => c.matiere === m.id)).length}/${cm.length}`,"matières planifiées"],["shield",nbConf ? "ic-o" : "ic-g",nbConf,nbConf ? "séance(s) en conflit" : "conflit détecté"]]) +
+          `<div class="card"><div class="toolbar"><div class="field"><label>Afficher le planning de</label><select id="selp">
+              <optgroup label="Classes">${db().classes.map(c => `<option value="c:${c.id}" ${v === "c:" + c.id ? "selected" : ""}>${esc(c.nom)}</option>`).join("")}</optgroup>
+              <optgroup label="Enseignants">${teachers().map(t => `<option value="p:${t.id}" ${v === "p:" + t.id ? "selected" : ""}>${esc(full(t))}</option>`).join("")}</optgroup></select></div>
+            <div style="display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn btn-line btn-sm no-print" onclick="print()">${ICONS.print} Imprimer</button>${M === "c" ? `<button class="btn btn-orange btn-sm no-print" id="addcr">+ Ajouter une séance</button>` : ""}</div></div>
+            ${L.length ? week(L, {label:label(M === "c" ? "classe" : "prof"), edit:true}) : empty(M === "c" ? "Aucune séance pour cette classe. Cliquez sur « Ajouter une séance »." : "Aucune séance pour cet enseignant.", "cal")}
+            <p class="notice no-print">Cliquez sur une séance pour la modifier ou la supprimer. Les conflits (classe, enseignant ou salle déjà occupés) sont bloqués automatiquement. Le planning est visible immédiatement par les enseignants et les étudiants.</p></div>
+          <div class="card"><h2>Volume horaire hebdomadaire</h2>${cm.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Matière</th><th>${M === "c" ? "Enseignant" : "Classe"}</th><th>Coef.</th><th>Séances</th><th>Heures / semaine</th><th></th></tr></thead><tbody>
+            ${cm.map(m => { const s = L.filter(c => c.matiere === m.id); return `<tr><td><b>${esc(m.nom)}</b></td><td>${M === "c" ? esc(full(Store.user(m.prof))) : `<span class="chip neu">${esc(m.classe)}</span>`}</td><td>${m.coef}</td><td>${s.length}</td><td class="moy">${fmtH(heures(s))}</td><td>${s.length ? `<span class="chip ok">Planifiée</span>` : `<span class="chip warn">À planifier</span>`}</td></tr>`; }).join("")}
+            </tbody></table></div>` : empty("Aucune matière.", "book")}</div>`;
+        el.querySelector("#selp").onchange = e => { ss("esm_pl", e.target.value); route(false); };
+        const form = c => {
+          const ms = db().matieres.filter(m => m.classe === c.classe), salles = [...new Set(all.map(x => x.salle).filter(Boolean))].sort();
+          if (!ms.length) return toast("Ajoutez d'abord des matières à cette classe.", "err");
+          const box = modal((c.id ? "Modifier la séance" : "Nouvelle séance") + " — " + c.classe, `<form class="form" id="crf">
+              <div class="field"><label>Matière</label><select name="matiere" required>${ms.map(m => `<option value="${m.id}" ${m.id === c.matiere ? "selected" : ""}>${esc(m.nom)} — ${esc(full(Store.user(m.prof)))}</option>`).join("")}</select></div>
+              <div class="row"><div class="field"><label>Jour</label><select name="jour">${Store.JOURS.slice(1).map((j, i) => `<option value="${i + 1}" ${i + 1 === +c.jour ? "selected" : ""}>${j}</option>`).join("")}</select></div>
+                <div class="field"><label>Type de séance</label><select name="type">${Store.TYPES.map(t => `<option ${t === c.type ? "selected" : ""}>${t}</option>`).join("")}</select></div></div>
+              <div class="row"><div class="field"><label>Début</label><input type="time" name="debut" value="${c.debut}" step="900" required></div><div class="field"><label>Fin</label><input type="time" name="fin" value="${c.fin}" step="900" required></div></div>
+              <div class="field"><label>Salle</label><input name="salle" value="${esc(c.salle || "")}" list="salles" placeholder="ex. Salle A1, Amphithéâtre" maxlength="60"><datalist id="salles">${salles.map(s => `<option value="${esc(s)}">`).join("")}</datalist></div>
+              <p id="crw" class="chip ok" style="white-space:normal">Aucun conflit détecté.</p>
+              <div style="display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap">${c.id ? `<button type="button" class="btn btn-line" id="crdel" style="color:var(--bad)">Supprimer</button>` : "<span></span>"}<button class="btn btn-orange">${ICONS.save} Enregistrer</button></div></form>`);
+          const f = box.querySelector("#crf"), w = box.querySelector("#crw");
+          const val = () => ({...c, ...Object.fromEntries(new FormData(f)), jour:+f.jour.value});
+          const check = () => { const d = val(), bad = !(d.debut < d.fin), k = bad ? [] : Store.conflits(d);
+            w.className = "chip " + (bad || k.length ? "bad" : "ok");
+            w.textContent = bad ? "L'heure de fin doit être après l'heure de début." : k.length ? "Conflit : " + k.map(x => x.why + " (" + x.c.debut + "–" + x.c.fin + ")").join(" ; ") : "Aucun conflit détecté."; };
+          f.oninput = f.onchange = check; check();
+          f.onsubmit = async e => { e.preventDefault(); if (await act(() => Store.saveCreneau(val()), c.id ? "Séance modifiée." : "Séance ajoutée au planning.")) { box.classList.remove("on"); route(false); } };
+          const del = box.querySelector("#crdel");
+          if (del) del.onclick = async () => { if (confirm("Supprimer cette séance du planning ?")) { await act(() => Store.deleteCreneau(c.id), "Séance supprimée."); box.classList.remove("on"); route(false); } };
+        };
+        const add = el.querySelector("#addcr");
+        if (add) add.onclick = () => form({classe:K, jour:1, debut:"08:00", fin:"10:00", type:"Cours", salle:""});
+        el.querySelectorAll("[data-cr]").forEach(b => b.onclick = () => form({...all.find(x => x.id === b.dataset.cr)}));
       },
 
       annonces(el) {
@@ -368,7 +451,7 @@ const P = (() => {
       {id:"notes", l:"Mes notes", ic:"chart", s:"Mises à jour en temps réel par vos enseignants"},
       {id:"bulletin", l:"Bulletin", ic:"print", s:"Relevé de notes imprimable"},
       {id:"annonces", l:"Annonces & devoirs", ic:"mega", s:"Informations de vos enseignants et de la scolarité"},
-      {id:"edt", l:"Emploi du temps", ic:"cal", s:"Semaine type"},
+      {id:"edt", l:"Emploi du temps", ic:"cal", s:"Planning de votre classe, mis à jour par la scolarité"},
       {id:"messages", l:"Messagerie", ic:"chat", s:"Écrivez à vos enseignants", badge:() => Store.unread(me.id)},
       {id:"compte", l:"Mon compte", ic:"lock", s:"Profil et mot de passe"},
     ];
@@ -381,6 +464,7 @@ const P = (() => {
         const rows = Store.notesEtudiant(me.id), mg = Store.moyenneGenerale(me.id), rg = Store.rang(me.id);
         const posts = Store.postsPour(me.classe), dev = posts.filter(p => p.type === "devoir" && p.echeance && new Date(p.echeance) > Date.now());
         el.innerHTML = `<div class="card" style="background:linear-gradient(110deg,var(--navy),var(--blue));color:#fff;border:0"><h2 style="color:#fff">Bonjour ${esc(me.prenom)} 👋</h2><p style="color:#f0d9e8">Matricule ${esc(me.matricule || me.login)} · ${esc(cl().nom)}</p></div>` +
+          (nxc => nxc ? `<div class="card next-cr"><span class="ic">${ICONS.cal}</span><span><small>Prochain cours</small>${nextLine(nxc)}</span><a class="btn btn-line btn-sm" href="#edt">Emploi du temps</a></div>` : "")(prochain(Store.creneaux({classe:me.classe}))) +
           kpis([["chart","ic-b",fmt(mg),"moyenne générale"],["award","ic-o",rg ? `${rg.rang}<small style="font-size:.9rem">/${rg.total}</small>` : "—","rang dans la classe"],["book","ic-g",`${rows.filter(r => r.moy != null && r.moy >= 10).length}/${rows.length}`,"matières validées"],["chat","ic-y",Store.unread(me.id),"messages non lus"]]) +
           `<div class="cols"><div class="card"><h2>Dernières annonces <a class="btn btn-line btn-sm" href="#annonces">Tout voir</a></h2><div class="feed">${posts.slice(0, 3).map(p => postHTML(p)).join("") || empty("Aucune annonce")}</div></div>
           <div><div class="card" style="text-align:center"><h2>Ma moyenne</h2><div class="ring" style="--p:${(mg || 0) * 5}"><div><span><b>${fmt(mg)}</b><br><small>/ 20</small></span></div></div><p style="margin-top:1rem">${chip(mg)}</p></div>
@@ -409,10 +493,11 @@ const P = (() => {
         el.innerHTML = `<div class="card"><h2>Toutes les publications</h2><div class="feed">${posts.map(p => postHTML(p)).join("") || empty("Aucune annonce")}</div></div>`;
       },
       edt(el) {
-        const ms = db().matieres.filter(m => m.classe === me.classe), days = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi"], slots = ["08h – 10h","10h – 12h","14h – 16h"];
-        if (!ms.length) { el.innerHTML = `<div class="card">${empty("L'emploi du temps sera disponible dès que les matières de votre classe seront programmées.", "cal")}</div>`; return; }
-        let k = 0; const cell = (d, s) => { if ((d + s) % 3 === 2) return `<div></div>`; const m = ms[(k++) % ms.length]; return `<div class="c ${k % 2 ? "" : "o"}">${esc(m.nom)}<small>${esc(full(Store.user(m.prof)))} · Salle ${1 + (d + s) % 5}</small></div>`; };
-        el.innerHTML = `<div class="card"><h2>Semaine type — ${esc(cl().nom)}</h2><div class="tbl-wrap" style="border:0"><div class="tt"><div class="h"></div>${days.map(d => `<div class="h">${d}</div>`).join("")}${slots.map((s, si) => `<div class="t">${s}</div>${days.map((_, di) => cell(di, si)).join("")}`).join("")}</div></div><p class="notice">Emploi du temps indicatif. Les changements de salle ou d'horaire sont publiés dans « Annonces ».</p></div>`;
+        const L = Store.creneaux({classe:me.classe}), nx = prochain(L);
+        if (!L.length) { el.innerHTML = `<div class="card">${empty("L'emploi du temps sera disponible dès que la scolarité aura programmé les séances de votre classe.", "cal")}</div>`; return; }
+        el.innerHTML = kpis([["cal","ic-b",L.length,"séances par semaine"],["clock","ic-o",fmtH(heures(L)),"de cours par semaine"],["award","ic-g",L.filter(c => c.type === "Examen").length,"examen(s) programmé(s)"],["book","ic-y",nx ? `${Store.JOURS[nx.jour].slice(0, 3)}. ${nx.debut}` : "—","prochain cours"]]) +
+          `<div class="card"><h2>Ma semaine — ${esc(cl().nom)} <button class="btn btn-line btn-sm no-print" onclick="print()">${ICONS.print} Imprimer</button></h2>${week(L, {label:c => { const m = Store.matiere(c.matiere) || {}; return [m.nom || "—", full(Store.user(m.prof))]; }})}
+          <p class="notice">${nx ? `Prochain cours : ${nextLine(nx)}. ` : ""}Les changements de dernière minute sont aussi publiés dans « Annonces ».</p></div>`;
       },
       messages(el) { messenger(el, profs().concat(db().users.filter(u => u.role === "admin"))); },
       compte: account,

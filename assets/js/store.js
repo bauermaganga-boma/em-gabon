@@ -84,12 +84,25 @@ const Store = (() => {
       {id:"c1", ref:"EMGU-26-0412", prenom:"Rachel", nom:"Mengue", tel:"077 00 00 00", email:"rachel.m@exemple.ga", formation:"esl8", formationLabel:"Sciences Infirmières", niveau:"Baccalauréat", serie:"B", date:iso(1), statut:"nouveau"},
       {id:"c2", ref:"EMGU-26-0409", prenom:"Dimitri", nom:"Oyono", tel:"066 00 00 00", email:"d.oyono@exemple.ga", formation:"eil5", formationLabel:"Génie Informatique", niveau:"Licence", serie:"", date:iso(3), statut:"en cours"},
     ];
-    return {v:1, classes, users, matieres, notes, posts, messages, candidatures, contacts:[], rangs:{}};
+    return {v:1, classes, users, matieres, notes, posts, messages, candidatures, contacts:[], creneaux:seedCreneaux(), rangs:{}};
+  }
+  /* Planning de démonstration : jour 1 = lundi … 6 = samedi */
+  function seedCreneaux() {
+    const R = [
+      ["L3-CCA",1,"08:00","10:00","m3","Salle A1","Cours"],["L3-CCA",1,"10:15","12:15","m2","Salle A1","Cours"],["L3-CCA",2,"14:00","16:00","m1","Salle info 1","TP"],
+      ["L3-CCA",3,"08:00","10:00","m3","Salle A1","TD"],["L3-CCA",4,"10:15","12:15","m2","Salle A1","TD"],["L3-CCA",5,"08:00","10:00","m1","Salle info 1","Cours"],
+      ["L3-DEA",1,"10:15","12:15","m5","Salle B2","Cours"],["L3-DEA",1,"14:00","16:00","m4","Salle B2","Cours"],["L3-DEA",2,"08:00","10:00","m6","Salle B2","Cours"],
+      ["L3-DEA",3,"10:15","12:15","m4","Salle B2","TD"],["L3-DEA",4,"14:00","16:00","m5","Salle B2","TD"],["L3-DEA",6,"08:00","11:00","m4","Amphithéâtre","Examen"],
+      ["L2-GI",1,"08:00","10:00","m7","Salle info 2","Cours"],["L2-GI",2,"10:15","12:15","m8","Labo réseaux","Cours"],["L2-GI",3,"14:00","17:00","m8","Labo réseaux","TP"],
+      ["L2-GI",4,"08:00","10:00","m7","Salle info 2","TD"],["L2-GI",5,"10:15","12:15","m7","Salle info 2","TP"],
+      ["M1-MSRH",2,"16:15","18:15","m9","Salle C1","Cours"],["M1-MSRH",3,"16:15","18:15","m10","Salle C1","Cours"],["M1-MSRH",4,"16:15","18:15","m9","Salle C1","TD"],["M1-MSRH",5,"14:00","16:00","m10","Salle C1","TD"],
+    ];
+    return R.map(([classe, jour, debut, fin, matiere, salle, type], i) => ({id:"cr" + (i + 1), classe, jour, debut, fin, matiere, salle, type}));
   }
   const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   const Demo = {
-    load() { let d; try { d = JSON.parse(localStorage.getItem(KEY)); } catch (e) {} if (!d || d.v !== 1) { d = seed(); db = d; this.save(); } db = d; db.rangs = {}; },
+    load() { let d; try { d = JSON.parse(localStorage.getItem(KEY)); } catch (e) {} if (!d || d.v !== 1) { d = seed(); db = d; this.save(); } db = d; db.rangs = {}; if (!db.creneaux) { db.creneaux = seedCreneaux().filter(c => db.matieres.some(m => m.id === c.matiere)); this.save(); } },
     save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} },
     async init() { this.load(); let id; try { id = sessionStorage.getItem(SKEY); } catch (e) {} me = id ? db.users.find(u => u.id === id) || null : null; return me; },
     async login(login, pwd, role) {
@@ -126,9 +139,11 @@ const Store = (() => {
       Object.values(db.notes).forEach(n => delete n[id]); db.matieres.forEach(m => { if (m.prof === id) m.prof = null; }); this.save();
     },
     async addClasse(c) { if (db.classes.some(x => x.id === c.id)) throw new Error("Ce code de classe existe déjà"); db.classes.push(c); this.save(); },
-    async deleteClasse(id) { db.classes = db.classes.filter(c => c.id !== id); db.matieres.filter(m => m.classe === id).forEach(m => delete db.notes[m.id]); db.matieres = db.matieres.filter(m => m.classe !== id); db.users.forEach(u => { if (u.classe === id) u.classe = null; }); this.save(); },
+    async deleteClasse(id) { db.classes = db.classes.filter(c => c.id !== id); db.creneaux = db.creneaux.filter(c => c.classe !== id); db.matieres.filter(m => m.classe === id).forEach(m => delete db.notes[m.id]); db.matieres = db.matieres.filter(m => m.classe !== id); db.users.forEach(u => { if (u.classe === id) u.classe = null; }); this.save(); },
     async saveMatiere(m) { if (m.id) Object.assign(db.matieres.find(x => x.id === m.id), m); else db.matieres.push({...m, id:uid("m")}); this.save(); },
-    async deleteMatiere(id) { db.matieres = db.matieres.filter(m => m.id !== id); delete db.notes[id]; this.save(); },
+    async deleteMatiere(id) { db.matieres = db.matieres.filter(m => m.id !== id); db.creneaux = db.creneaux.filter(c => c.matiere !== id); delete db.notes[id]; this.save(); },
+    async saveCreneau(c) { if (c.id) Object.assign(db.creneaux.find(x => x.id === c.id), c); else db.creneaux.push({...c, id:uid("cr")}); this.save(); },
+    async deleteCreneau(id) { db.creneaux = db.creneaux.filter(c => c.id !== id); this.save(); },
     subscribe(cb) { addEventListener("storage", e => { if (e.key === KEY) { const id = me && me.id; this.load(); me = db.users.find(u => u.id === id) || me; cb("all"); } }); },
   };
 
@@ -166,6 +181,7 @@ const Store = (() => {
       messages: async () => { db.messages = (await q(sb.from("messages").select("*").order("date"))).map(mapMsg); },
       candidatures: async () => { db.candidatures = me.role === "admin" ? (await q(sb.from("candidatures").select("*").order("date", {ascending:false}))).map(mapCand) : []; },
       contacts: async () => { db.contacts = me.role === "admin" ? await q(sb.from("contacts").select("*").order("date", {ascending:false})) : []; },
+      creneaux: async () => { db.creneaux = (await q(sb.from("creneaux").select("*").order("jour").order("debut"))).map(c => ({...c, debut:c.debut.slice(0, 5), fin:c.fin.slice(0, 5)})); },
     },
     async loadAll() { await Promise.all(Object.values(this.loaders).map(f => f())); },
     async init() {
@@ -222,10 +238,16 @@ const Store = (() => {
       if (m.id) await q(sb.from("matieres").update(row).eq("id", m.id)); else await q(sb.from("matieres").insert(row));
       await this.loaders.matieres();
     },
-    async deleteMatiere(id) { await q(sb.from("matieres").delete().eq("id", id)); await this.loaders.matieres(); await this.loaders.notes(); },
+    async deleteMatiere(id) { await q(sb.from("matieres").delete().eq("id", id)); await this.loaders.matieres(); await this.loaders.notes(); await this.loaders.creneaux(); },
+    async saveCreneau(c) {
+      const row = {classe:c.classe, matiere:c.matiere, jour:+c.jour, debut:c.debut, fin:c.fin, salle:c.salle || null, type:c.type};
+      if (c.id) await q(sb.from("creneaux").update(row).eq("id", c.id)); else await q(sb.from("creneaux").insert(row));
+      await this.loaders.creneaux();
+    },
+    async deleteCreneau(id) { await q(sb.from("creneaux").delete().eq("id", id)); await this.loaders.creneaux(); },
     subscribe(cb) {
       const ch = sb.channel("emgu-live");
-      ["notes","posts","messages","candidatures","contacts"].forEach(t => ch.on("postgres_changes", {event:"*", schema:"public", table:t}, async payload => {
+      ["notes","posts","messages","candidatures","contacts","creneaux"].forEach(t => ch.on("postgres_changes", {event:"*", schema:"public", table:t}, async payload => {
         try { await this.loaders[t](); } catch (e) { return; }
         cb(t, payload.new && t === "messages" ? mapMsg(payload.new) : payload.new);
       }));
@@ -290,6 +312,27 @@ const Store = (() => {
     deleteClasse: id => A.deleteClasse(id),
     saveMatiere: m => A.saveMatiere(m),
     deleteMatiere: id => A.deleteMatiere(id),
+    // Planning
+    JOURS: ["", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"],
+    TYPES: ["Cours", "TD", "TP", "Examen"],
+    creneaux: (f = {}) => (db.creneaux || []).filter(c => (!f.classe || c.classe === f.classe) && (!f.prof || (db.matieres.find(m => m.id === c.matiere) || {}).prof === f.prof))
+      .sort((a, b) => a.jour - b.jour || a.debut.localeCompare(b.debut)),
+    // Conflits : même classe, même enseignant ou même salle sur un horaire qui se chevauche
+    conflits(c) {
+      const prof = (db.matieres.find(m => m.id === c.matiere) || {}).prof, salle = (c.salle || "").trim().toLowerCase();
+      return (db.creneaux || []).filter(x => x.id !== c.id && +x.jour === +c.jour && x.debut < c.fin && c.debut < x.fin).map(x => {
+        const xp = (db.matieres.find(m => m.id === x.matiere) || {}).prof;
+        const why = x.classe === c.classe ? "la classe " + x.classe + " a déjà cours" : prof && xp === prof ? "l'enseignant a déjà cours en " + x.classe : salle && (x.salle || "").trim().toLowerCase() === salle ? "la salle « " + x.salle + " » est occupée par " + x.classe : null;
+        return why && {c:x, why};
+      }).filter(Boolean);
+    },
+    saveCreneau(c) {
+      if (!(c.debut < c.fin)) return Promise.reject(new Error("L'heure de fin doit être après l'heure de début."));
+      const k = this.conflits(c);
+      if (k.length) return Promise.reject(new Error("Conflit : " + k[0].why + " (" + this.JOURS[k[0].c.jour] + " " + k[0].c.debut + "–" + k[0].c.fin + ")."));
+      return A.saveCreneau(c);
+    },
+    deleteCreneau: id => A.deleteCreneau(id),
     subscribe: cb => A.subscribe(cb),
   };
 })();
